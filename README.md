@@ -165,9 +165,9 @@ go run http/main.go \
     --keyfile "workload1_tpm_key.pem" \
     --objectName "foo.txt" \
     --poolid  "cert-pool-1" \
-    --projectId $PROJECT_ID $ \
+    --projectId $PROJECT_ID \
     --projectNumber  $PROJECT_NUMBER \
-    --providerid $PROVIDER_ID$ \
+    --providerid $PROVIDER_ID \
     --pubCert  "workload1.crt" \
     --tpm-path "127.0.0.1:2321"
 
@@ -176,9 +176,9 @@ go run grpc/main.go \
     --keyfile "workload1_tpm_key.pem" \
     --objectName "foo.txt" \
     --poolid  "cert-pool-1" \
-    --projectId $PROJECT_ID $ \
+    --projectId $PROJECT_ID \
     --projectNumber  $PROJECT_NUMBER \
-    --providerid $PROVIDER_ID$ \
+    --providerid $PROVIDER_ID \
     --pubCert  "workload1.crt" \
     --tpm-path "127.0.0.1:2321"
 ```
