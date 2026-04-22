@@ -27,22 +27,80 @@ Basically, your workload mTLS configuration allows for `$FEDERATED_PRINCIPAL` re
 
 What the following step will do is first verify you have access to the resource via curl.
 
+First setup mtls workload federation as shown in [GCP Workload Identity Federation using x509 certificates](https://github.com/salrashid123/mtls-tokensource#configure-workload-federation).
+
+Then configure the `access context`
+
+```bash
+### get your orgID
+$ gcloud organizations list
+DISPLAY_NAME               ID  DIRECTORY_CUSTOMER_ID
+testorg  673208781111              C023redact
+
+export ORG_ID=673208781111
+
+### create a root policy if one doesn't exist already
+gcloud access-context-manager policies create --organization $ORG_ID --title "mtls access policy"
+
+$ gcloud alpha access-context-manager policies  list --organization=$ORG_ID
+NAME          ORGANIZATION  SCOPES  TITLE            ETAG
+157300459203  673208781111          mtls access policy  0379fe0a44a96f15
+
+## export the policyID from the command above
+export POLICY_ID=157300459203    # https://cloud.google.com/access-context-manager/docs/create-access-policy
+
+### create the access level for mtls
+$ cat policy.yaml 
+expression: "request.auth.matchesMtlsTokens(origin) == true"
+
+gcloud access-context-manager levels create mtls_level \
+  --title="MTLSPolicy" \
+  --custom-level-spec=policy.yaml \
+  --description="mtls Policy" --policy=$POLICY_ID
+
+## you should end up with
+$ gcloud access-context-manager levels describe mtls_level
+        custom:
+        expr:
+            expression: request.auth.matchesMtlsTokens(origin) == true
+        description: mtls Policy
+        name: accessPolicies/157300459203/accessLevels/mtls_level
+        title: MTLSPolicy
+
+### now bind the mtls workload identity to the access level
+#### the following assumes youv'e issued the certificates for the following federated principal as shown in
+####    https://github.com/salrashid123/mtls-tokensource#client
+export ACCESS_LEVEL_ID="accessPolicies/$POLICY_ID/accessLevels/mtls_level"
+export FEDERATED_PRINCIPAL="principal://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL_ID/subject/workload1"        
+
+gcloud alpha access-context-manager cloud-bindings create \
+--organization=$ORG_ID \
+--federated-principal=$FEDERATED_PRINCIPAL \
+--level=$ACCESS_LEVEL_ID
+
+### verify
+
+$ gcloud alpha access-context-manager cloud-bindings list --organization=$ORG_ID --filter='principal:federatedPrincipal'
+    ---
+    accessLevels:
+    - accessPolicies/157300459203/accessLevels/mtls_level
+    name: organizations/673208786098/gcpUserAccessBindings/aAQS-YRRJFo3n5c_FlJIeWdlEWfpmECq8vfRi577VMvc2WVGASgE5pvlYzaJeKHfmtaauM69UV_Mu99OlgU9meuE51lm7II_GZqHMdMyq7LGRMT24kXpqYgnqw1rFoU9KHmkqsfyBcjIgm9n53r-h
+    principal:
+    federatedPrincipal: principal://iam.googleapis.com/projects/995081019036/locations/global/workloadIdentityPools/cert-pool-1/subject/workload1
+```
+
 Note that in the example below, i' using  
 
 * the POLICY_ID is `157300451111`.  The access level i'm using is called `mtls_level`
 * the orgid, project number, bucket, pool_id, provider_id will be different for you too
 
 ```bash
-### yoru values will be different
+### your values will be different
 export PROJECT_ID=core-eso
 export PROJECT_NUMBER=995081011111
 export POOL_ID="cert-pool-1"
 export PROVIDER_ID="cert-provider-1"
 export BUCKET_NAME="core-eso-bucket"
-export ORG_ID=673208781111
-export POLICY_ID=157300451111    # https://cloud.google.com/access-context-manager/docs/create-access-policy
-export ACCESS_LEVEL_ID="accessPolicies/$POLICY_ID/accessLevels/mtls_level"
-export FEDERATED_PRINCIPAL="principal://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL_ID/subject/workload1"
 ```
 
 make sure the workload has access to list the objects in the bucket
@@ -224,7 +282,7 @@ the final curl output would yield
   "active": true,
   "scope": "https://www.googleapis.com/auth/cloud-platform",
   "client_id": "32555940559.apps.googleusercontent.com",
-  "username": "principal://iam.googleapis.com/projects/995081019036/locations/global/workloadIdentityPools/cert-pool-1/subject/workload1",
+  "username": "principal://iam.googleapis.com/projects/995081011111/locations/global/workloadIdentityPools/cert-pool-1/subject/workload1",
   "exp": "1776856522",
   "iat": "1776852922",
   "sub": "AAFTZttOrGdFiLHt1aDSiXnrovsHKrQGBmUEDStC2lfFD4vKcivy4YrGEq0EKA0FFE157KYTB1xz1a-2fCO2-aOJObtTuFS73XeSrsZ8q4tU",
