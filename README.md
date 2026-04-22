@@ -1,7 +1,7 @@
 ## TPM based mTLS bound access tokens for Google Cloud Platform
 
 
-This is a demo of [Context Aware Access certificate-based access for Workload Identity Federation](https://cloud.google.com/chrome-enterprise-premium/docs/configure_cba_for_workloads) where the private key is saved into a  `Trusted Platform Module`.
+This is a demo of [Context Aware Access certificate-based access for Workload Identity Federation](https://docs.cloud.google.com/access-context-manager/docs/configure_cba_for_workloads) where the private key is saved into a  `Trusted Platform Module`.
 
 It builds on  [GCP Workload Identity Federation using x509 certificates](https://github.com/salrashid123/mtls-tokensource) whith the difference being the `access_token` returned is only useful if the underlying connection to the GCP resource is accompanied by the same client certificate.
 
@@ -14,7 +14,7 @@ The client libraries here demonstrate how you can both get an access_token and t
 
 ---
 
-This demo assumes you have configured workload federation mTLS and have the required Context Aware licenses (eg, Chrome Enterprise Premium) to allow you to use this feature (eg, on the preview allow list)
+This demo assumes you have configured workload federation mTLS and have the required Context Aware access to allow you to use this feature
 
 For this demo, i'm using the following values exported and you have configured workload federation mTLS  
 
@@ -90,7 +90,12 @@ tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 printf '\x00\x00' > unique.dat
 tpm2_createprimary -C o -G ecc  -g sha256  -c primary.ctx -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda|restricted|decrypt" -u unique.dat
 
+### import the appropriate key type, if you used the keytype from salrashid123/mtls-tokensource, its ecc
+#### for ecc
+tpm2_import -C primary.ctx -G rsa2048:rsapss:null -g sha256 -i workload1.key -u key.pub -r key.priv
+#### for rsa
 tpm2_import -C primary.ctx -G ecc256:ecdsa -g sha256 -i workload1.key -u key.pub -r key.priv
+
 tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx 
 
@@ -181,4 +186,48 @@ go run grpc/main.go \
     --providerid $PROVIDER_ID \
     --pubCert  "workload1.crt" \
     --tpm-path "127.0.0.1:2321"
+```
+
+### Appendix
+
+If you want to inspect the principal the sts token is issued to, just look at the certificate or dynamicaly inspect it using curl, see [Inspect Google Application Default Credentials Tokens](https://github.com/salrashid123/gcp_adc_util)
+
+Which in this case work to
+
+```bash
+curl --key workload1.key --cert workload1.crt \
+   -H "Authorization: Bearer $TOKEN" https://storage.mtls.googleapis.com/storage/v1/b/$BUCKET_NAME/o/foo.txt
+
+export BASIC_AUTH_HEADER="MzI1NTU5NDA1NTkuYXBwcy5nb29nbGV1c2VyY29udGVudC5jb206Wm1zc0xOakp5Mjk5OGhENENUZzJlanIy"
+
+export TOKEN=`curl -s  -H "Authorization: Basic $BASIC_AUTH_HEADER"  \
+--key workload1.key \
+--cert workload1.crt \
+--request POST 'https://sts.mtls.googleapis.com/v1/token' \
+--header "Content-Type: application/json" \
+--data-raw "{
+    \"subject_token_type\": \"urn:ietf:params:oauth:token-type:mtls\",
+    \"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\",
+    \"audience\": \"//iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL_ID/providers/$PROVIDER_ID\",
+    \"requested_token_type\": \"urn:ietf:params:oauth:token-type:access_token\",
+    \"scope\": \"https://www.googleapis.com/auth/cloud-platform\",
+}" | jq -r '.access_token'`
+
+
+curl -s --key workload1.key --cert workload1.crt -H "Authorization: Basic $BASIC_AUTH_HEADER" -H "Content-Type: application/json" --data "{\"token\":\"$TOKEN\"}" https://sts.mtls.googleapis.com/v1/introspect
+```
+
+the final curl output would yield
+
+```json
+{
+  "active": true,
+  "scope": "https://www.googleapis.com/auth/cloud-platform",
+  "client_id": "32555940559.apps.googleusercontent.com",
+  "username": "principal://iam.googleapis.com/projects/995081019036/locations/global/workloadIdentityPools/cert-pool-1/subject/workload1",
+  "exp": "1776856522",
+  "iat": "1776852922",
+  "sub": "AAFTZttOrGdFiLHt1aDSiXnrovsHKrQGBmUEDStC2lfFD4vKcivy4YrGEq0EKA0FFE157KYTB1xz1a-2fCO2-aOJObtTuFS73XeSrsZ8q4tU",
+  "iss": "https://sts.googleapis.com/"
+}
 ```
