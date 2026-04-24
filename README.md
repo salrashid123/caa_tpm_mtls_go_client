@@ -126,6 +126,13 @@ export TOKEN=`curl -s  \
     \"scope\": \"https://www.googleapis.com/auth/cloud-platform\",
 }" | jq -r '.access_token'`
 
+
+## this should fail
+curl  -H "Authorization: Bearer $TOKEN" https://storage.googleapis.com/storage/v1/b/$BUCKET_NAME/o/foo.txt
+## so should this
+curl  -H "Authorization: Bearer $TOKEN" https://storage.mtls.googleapis.com/storage/v1/b/$BUCKET_NAME/o/foo.txt
+
+### this should work
 curl --key workload1.key --cert workload1.crt  -H "Authorization: Bearer $TOKEN" https://storage.mtls.googleapis.com/storage/v1/b/$BUCKET_NAME/o/foo.txt
 ```
 
@@ -160,67 +167,7 @@ tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
 tpm2_encodeobject -C primary.ctx -u key.pub -r key.priv -o workload1_tpm_key.pem
 ```
 
-Make sure the policy is set for mtls at an access-level called `mtls_level`
-
-```bash
-$ gcloud access-context-manager levels describe mtls_level
-custom:
-  expr:
-    expression: request.auth.matchesMtlsTokens(origin) == true
-description: mtls Policy
-name: accessPolicies/157300451111/accessLevels/mtls_level
-title: MTLSPolicy
-```
-
-and bind then create a binding to that level.
-
-what the following does is enforce mtls based bound access for all access done by `workload1`
-
-```bash
-gcloud alpha access-context-manager cloud-bindings create \
---organization=$ORG_ID \
---federated-principal=$FEDERATED_PRINCIPAL \
---level=$ACCESS_LEVEL_ID
-
-$ gcloud alpha access-context-manager cloud-bindings list --organization=$ORG_ID --filter='principal:federatedPrincipal'
-    ---
-    accessLevels:
-    - accessPolicies/157300451111/accessLevels/mtls_level
-    name: organizations/673208781111/gcpUserAccessBindings/aAQS-YRRJFo3n5c_FlJIeWdlEWfpmECq8vfRi577VMvc2WVGASgE5pvlYzaJeKHfmtaauM69UV_Mu99OlgU9meuE51lm7II_GZqHMdMyq7LGRMT24kXpqYgnqw1rFoU9KHmkqsfyBcjIgm9n53r-h
-    principal:
-      federatedPrincipal: principal://iam.googleapis.com/projects/995081011111/locations/global/workloadIdentityPools/cert-pool-1/subject/workload1
-```
-
-
-
-Once this is setup, try to access the resource with and without the client cert in the gcs api call:
-
-```bash
-export TOKEN=`curl -s  \
---key workload1.key \
---cert workload1.crt \
---request POST 'https://sts.mtls.googleapis.com/v1/token' \
---header "Content-Type: application/json" \
---data-raw "{
-    \"subject_token_type\": \"urn:ietf:params:oauth:token-type:mtls\",
-    \"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\",
-    \"audience\": \"//iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL_ID/providers/$PROVIDER_ID\",
-    \"requested_token_type\": \"urn:ietf:params:oauth:token-type:access_token\",
-    \"scope\": \"https://www.googleapis.com/auth/cloud-platform\",
-}" | jq -r '.access_token'`
-
-## this should fail
-curl  -H "Authorization: Bearer $TOKEN" https://storage.googleapis.com/storage/v1/b/$BUCKET_NAME/o/foo.txt
-
-curl  -H "Authorization: Bearer $TOKEN" https://storage.mtls.googleapis.com/storage/v1/b/$BUCKET_NAME/o/foo.txt
-
-### this should work
-curl --key workload1.key --cert workload1.crt  -H "Authorization: Bearer $TOKEN" https://storage.mtls.googleapis.com/storage/v1/b/$BUCKET_NAME/o/foo.txt
-```
-
-
 Finally use the clients for gRPC and rest
-
 
 ```bash
 go run http/main.go \
@@ -233,7 +180,11 @@ go run http/main.go \
     --providerid $PROVIDER_ID \
     --pubCert  "workload1.crt" \
     --tpm-path "127.0.0.1:2321"
+```
 
+For gRPC
+
+```bash
 go run grpc/main.go \
     --bucketName $BUCKET_NAME \
     --keyfile "workload1_tpm_key.pem" \
